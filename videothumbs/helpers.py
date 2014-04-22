@@ -16,7 +16,7 @@ class VideoThumbnailHelper(FieldFile):
 
         for size in self.sizes:
             name = 'url_%sx%s' % size
-            value = self.get_thumbnail_url(size)
+            value = self.get_thumbnail_url(size) if self.name else ''
             setattr(self, name, value)
 
     def _generate_thumbnail(self, video, 
