@@ -1,4 +1,4 @@
-import cStringIO, hashlib, math, os, subprocess, time
+import cStringIO, hashlib, math, os, subprocess, string, time
 
 from PIL import Image, ImageOps
 
@@ -40,9 +40,17 @@ class VideoThumbnailHelper(FieldFile):
         frame_args = {'path': path, 'filename': filehash, 'frame': '%d'}
         frame = "%(path)s%(filename)s.%(frame)s.jpg" % frame_args
 
+        rotation_flags = self._get_rotation_flags(video.path)
+
         # Build the ffmpeg shell command and run it via subprocess
-        cmd_args = {'frames': frames, 'video_path': video.path, 'output': frame}
-        command = "ffmpeg -y -vframes %(frames)d -i %(video_path)s %(output)s"
+        cmd_args = {'frames': frames, 'video_path': video.path,
+            'rotation_flags': rotation_flags, 'output': frame}
+        if rotation_flags:
+            command = ("ffmpeg -y -vframes %(frames)d -i %(video_path)s "
+                "-vf %(rotation_flags)s %(output)s")
+        else:
+            command = ("ffmpeg -y -vframes %(frames)d -i %(video_path)s "
+                "%(output)s")
         command = command % cmd_args
         response = subprocess.call(command, shell=True,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -128,6 +136,36 @@ class VideoThumbnailHelper(FieldFile):
             os.unlink(frame_file)
 
         return ContentFile(io.getvalue())
+
+    def _strip_non_digits(self, str):
+        all_ = string.maketrans('', '')
+        nodigs = all_.translate(all_, string.digits)
+
+        return str.translate(all_, nodigs)
+
+    def _get_rotation_flags(self, path):
+        cmd_args = {'video_path': path}
+        command = "mediainfo %(video_path)s"
+        command = command % cmd_args
+        out, _ = subprocess.Popen(command, shell=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+
+        line = [self._strip_non_digits(line)
+            for line in out.split('\n')
+            if line.startswith('Rotation')]
+
+        try:
+            rotation = int(line[0])
+            if rotation == 0:
+                raise ValueError
+
+            rotation_flags = ''
+            for i in range(rotation / 90):
+                rotation_flags += 'transpose=1,'
+
+            return rotation_flags[:-1]
+        except (IndexError, ValueError):
+            return False
 
     def get_thumbnail_url(self, size):
         path, full_filename = os.path.split(self.url)
